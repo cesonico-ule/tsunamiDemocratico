@@ -1,11 +1,22 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <pthread.h>
+#include <signal.h>
+#include <time.h>
+#include <unistd.h>
 
 #define MAXUSR 15
 #define MAXSOCIALACT 4
 
 
 // - -- --- METODOS --- -- -
+//Hilos
+void *hiloUsuario (void *arg);
+void *hiloAtendedorInvitacion (void *arg);
+void *hiloAtendedorQR (void *arg);
+void *hiloAtendedorPRO (void *arg);
+void *hiloCoordinador(void *arg);
+
 //Manejadoras
 void manejadoraSolicitud(int sig);
 void manejadoraTerminar();
@@ -13,6 +24,7 @@ void manejadoraTerminar();
 //Auxiliares
 void writeLogMessage(char *id, char *msg);
 int calculaAleatorios(int min, int max);
+int buscarEspacioSolicitud(); //Devuelve la posicion donde haya un hueco en la lista de solicitudes, si no lo encuentre devuelve un -1.
 
 
 // - -- --- VARIABLES GLOBALES --- -- -
@@ -37,7 +49,7 @@ struct solicitudUsuario{
 	int id;
 	int atendido;
 	int tipo;
-} Usuario;
+};
 
 struct solicitudUsuario *colaSolicitud;
 struct solicitudUsuario *colaEventos;
@@ -46,9 +58,13 @@ struct solicitudUsuario *colaEventos;
 
 
 int main (){
-	//Enmascarar las senyales necesarias
-	srand(time(NULL));
 
+	srand(time(NULL));
+	
+	//Inicializamos los contadores
+	contadorSolicitudes=0;
+
+	//Tratamos las senyales
 	if(signal(SIGUSR1, manejadoraSolicitud)==SIG_ERR){
 		perror("LLamada a manejadora fallida.");
 		exit(-1);
@@ -61,51 +77,103 @@ int main (){
 		perror("LLamada a manejadora fallida.");
 		exit(-1);
 	}
-	//Inicializamos los rescursos
-		//Inicializamos los semaforos
-		if(pthread_mutex_init(&semLog, NULL) != 0)exit (-1);
-		if(pthread_mutex_init(&semSolicitudes, NULL) != 0)exit (-1);
-		if(pthread_mutex_init(&semActividadSocial, NULL) != 0)exit (-1);
 
-		//Inicializamos el contador
-		contadorSolicitudes = 0;
 
-		//Inicializamos las listas
-		colaSolicitud = (struct solicitudUsuario*)malloc(MAXUSR*sizeof(struct solicitudUsuario));
-		for(int i=0;i<MAXUSR;i++) {
-			solicitudUsuario[i].id=0;	
-			solicitudUsuario[i].atendidot=0;
-			solicitudUsuario[i].tipo=0
-		}
-		colaEventos = (struct solicitudUsuario*)malloc(MAXSOCIALACT*sizeof(struct solicitudUsuario));
-		for(int i=0;i<MAXSOCIALACT;i++) {
-			solicitudUsuario[i].id=0;	
-			solicitudUsuario[i].atendidot=0;
-			solicitudUsuario[i].tipo=0
-		}
+	//Inicializamos las listas
+	colaSolicitud = (struct solicitudUsuario*)malloc(MAXUSR*sizeof(struct solicitudUsuario));
+	for(int i=0;i<MAXUSR;i++) {
+		colaSolicitud[i].id=0;	
+		colaSolicitud[i].atendido=0;
+		colaSolicitud[i].tipo=0;
+	}
+	colaEventos = (struct solicitudUsuario*)malloc(MAXSOCIALACT*sizeof(struct solicitudUsuario));
+	for(int i=0;i<MAXSOCIALACT;i++) {
+		colaEventos[i].id=0;	
+		colaEventos[i].atendido=0;
+		colaEventos[i].tipo=0;
+	}
+	//Inicializamos los semaforos
+	if (pthread_mutex_init(&semLog, NULL)!=0) exit(-1); 
+	if (pthread_mutex_init(&semSolicitudes, NULL)!=0) exit(-1); 
+	if (pthread_mutex_init(&semActividadSocial, NULL)!=0) exit(-1); 
 
-		//Fichero de log
-		logFile = fopen("tsunamiDemocraticLog","w");
-		writeLogMessage("Main","Ha empezado la aplicacion");
+	//Creamos el archivo de los log si no existe ya
+	pthread_mutex_lock(&semLog);
+	logFile= fopen("tsunamiDemocraticLog","w");
+	writeLogMessage("Main","Ha empezado la aplicacion");
+	pthread_mutex_unlock(&semLog);
 
-	//3 hilos atendedores
+ 	//Creamos los hilos
 	pthread_t atendInv, atendQR, atendPRO, coordinadorSocial;
 	pthread_create (&atendInv, NULL, hiloAtendedorInvitacion, NULL);
 	pthread_create (&atendQR, NULL, hiloAtendedorQR, NULL);
 	pthread_create (&atendPRO, NULL, hiloAtendedorPRO, NULL);
-	//hilo del coordinador
-	pthread_create (&coordinadorSocial, NULL, hiloCoordinador, NULL);		
+	pthread_create (&coordinadorSocial, NULL, hiloCoordinador, NULL);
 	
+	printf("Mandame senyales %i",getpid());
+
 	//Pause para que espere por las senyales
-	while(1){
-		pause(); 
+	while(1) {
+		pause();
 	}
 }
 
+//Llega una senyal y se crea una nueva solicitud de usuario
+
 void manejadoraSolicitud(int sig){
+	pthread_mutex_lock(&semSolicitudes); //Cerramos el mutex
+	printf("Ha llegado una solicitud \n");
+	int posicion=buscarEspacioSolicitud(); //Buscamos una posicion en la que haya hueco
+
+	if(posicion!=-1) { //Si encontramos un hueco
+		contadorSolicitudes++; //Incrementamos el contador de solicitudes
+		colaSolicitud[posicion].id=contadorSolicitudes; //Le asignamos un id
+		colaSolicitud[posicion].atendido=0; //Ponemos que no esta atendido ya que acaba de llegar
+		if(sig==SIGUSR1) { //Si le llega la senyal SIGUSR1 será de tipo 1 
+			colaSolicitud[posicion].tipo=1;
+		}
+
+		if(sig==SIGUSR2) { //Si le llega la senyal SIGUSR1 será de tipo 2
+			colaSolicitud[posicion].tipo=2;
+		}
+		
+		printf("Voy a crear el hilo \n");
+		pthread_t user; //Declaro el usuario
+		//Creo el hilo y le paso de argumentos la posicion de su numero de id.
+		pthread_create(&user,NULL,hiloUsuario, (void *)colaSolicitud[posicion].id); 
+	
+	} else {
+		printf("No hay espacio para solicitudes, se ignora la senyal \n");
+	}
+		
+	pthread_mutex_unlock(&semSolicitudes); //Abrimos el mutex
+	
+
+
+
+		
+}
+
+void *hiloUsuario(void *arg) {
+
 
 }
 
+void *hiloAtendedorInvitacion(void *arg) {
+
+}
+
+void *hiloAtendedorQR(void *arg) {
+
+}
+
+void *hiloAtendedorPRO(void *arg) {
+
+
+}
+
+void *hiloCoordinador(void *arg) {
+}
 
 void manejadoraTerminar(){
 
@@ -117,7 +185,7 @@ void writeLogMessage(char *id, char *msg) {
 	struct tm *tlocal = localtime(&now); 
 	char stnow[19]; strftime(stnow, 19, "%d/%m/%y %H:%M:%S", tlocal); 
 	// Escribimos en el log 
-	logFile = fopen(logFileName, "a"); 
+	logFile = fopen("tsunamiDemocraticLog", "a"); 
 	fprintf(logFile, "[%s] %s: %s\n", stnow, id, msg); 
 	fclose(logFile); 
 }
@@ -125,6 +193,27 @@ void writeLogMessage(char *id, char *msg) {
 int calculaAleatorios(int min, int max) {
 	return rand() % (max-min+1) + min;
 }
+
+//Busca un espacio disponible para la siguiente solicitud y devuelve la posicion si lo encuentra
+//Si no lo encuentra devuelve -1
+
+int buscarEspacioSolicitud() {
+	printf("Buscando espacio\n");
+	int posicion=-1;
+	int posEncontrada=0;
+
+	for(int i=0;i<MAXUSR && posEncontrada==0;i++) { //Buscamos donde hay un hueco libre
+		if(colaSolicitud[i].id==0) { //Si lo encuentra guardamos su posicion
+			posicion=i;
+			posEncontrada=1;
+		}
+	}
+	
+	printf("Terminado de buscar espacio\n");
+	return posicion; //Si encontramos un hueco devuelve su posicion, si no devuelve -1
+}
+
+
 
 
 
