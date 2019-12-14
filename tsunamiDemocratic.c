@@ -46,14 +46,14 @@ struct solicitudUsuario *colaEventos;
 
 
 int main (){
-
+	//Enmascarar las senyales necesarias
 	srand(time(NULL));
 
-	if(signal(SIGUSR1, manejadoraInvitacion)==SIG_ERR){
+	if(signal(SIGUSR1, manejadoraSolicitud)==SIG_ERR){
 		perror("LLamada a manejadora fallida.");
 		exit(-1);
 	}
-	if(signal(SIGUSR2, manejadoraQr)==SIG_ERR){
+	if(signal(SIGUSR2, manejadoraSolicitud)==SIG_ERR){
 		perror("LLamada a manejadora fallida.");
 		exit(-1);
 	}
@@ -61,22 +61,45 @@ int main (){
 		perror("LLamada a manejadora fallida.");
 		exit(-1);
 	}
+	//Inicializamos los rescursos
+		//Inicializamos los semaforos
+		if(pthread_mutex_init(&semLog, NULL) != 0)exit (-1);
+		if(pthread_mutex_init(&semSolicitudes, NULL) != 0)exit (-1);
+		if(pthread_mutex_init(&semActividadSocial, NULL) != 0)exit (-1);
 
-	//Inicializamos las listas
-	struct solicitudUsuario *colaSolicitud = (struct solicitudUsuario*)malloc(MAXUSR*sizeof(struct solicitudUsuario));
-	for(int i=0;i<MAXUSR;i++) {
-		solicitudUsuario[i].id=0;	
-		solicitudUsuario[i].atendidot=0;
-		solicitudUsuario[i].tipo=0
-	}
-	struct solicitudUsuario *colaEventos = (struct solicitudUsuario*)malloc(MAXSOCIALACT*sizeof(struct solicitudUsuario));
-	for(int i=0;i<MAXSOCIALACT;i++) {
-		solicitudUsuario[i].id=0;	
-		solicitudUsuario[i].atendidot=0;
-		solicitudUsuario[i].tipo=0
-	}
+		//Inicializamos el contador
+		contadorSolicitudes = 0;
 
-	pause(); //Pause para que espere por las senyales
+		//Inicializamos las listas
+		colaSolicitud = (struct solicitudUsuario*)malloc(MAXUSR*sizeof(struct solicitudUsuario));
+		for(int i=0;i<MAXUSR;i++) {
+			solicitudUsuario[i].id=0;	
+			solicitudUsuario[i].atendidot=0;
+			solicitudUsuario[i].tipo=0
+		}
+		colaEventos = (struct solicitudUsuario*)malloc(MAXSOCIALACT*sizeof(struct solicitudUsuario));
+		for(int i=0;i<MAXSOCIALACT;i++) {
+			solicitudUsuario[i].id=0;	
+			solicitudUsuario[i].atendidot=0;
+			solicitudUsuario[i].tipo=0
+		}
+
+		//Fichero de log
+		logFile = fopen("tsunamiDemocraticLog","w");
+		writeLogMessage("Main","Ha empezado la aplicacion");
+
+	//3 hilos atendedores
+	pthread_t atendInv, atendQR, atendPRO, coordinadorSocial;
+	pthread_create (&atendInv, NULL, hiloAtendedorInvitacion, NULL);
+	pthread_create (&atendQR, NULL, hiloAtendedorQR, NULL);
+	pthread_create (&atendPRO, NULL, hiloAtendedorPRO, NULL);
+	//hilo del coordinador
+	pthread_create (&coordinadorSocial, NULL, hiloCoordinador, NULL);		
+	
+	//Pause para que espere por las senyales
+	while(1){
+		pause(); 
+	}
 }
 
 void manejadoraSolicitud(int sig){
