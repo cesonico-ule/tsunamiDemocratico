@@ -25,7 +25,8 @@ void manejadoraTerminar();
 void writeLogMessage(char *id, char *msg);
 int calculaAleatorios(int min, int max);
 int buscarEspacioSolicitud(); //Devuelve la posicion donde haya un hueco en la lista de solicitudes, si no lo encuentre devuelve un -1.
-
+int contarMismoTipo(int idFacturador); //busca si hay solicitud del mismo tipo que el atendedor que esta esperando
+int buscaMinId(int idAten); /* Busca el usuario de minimo ID */
 
 // - -- --- VARIABLES GLOBALES --- -- -
 
@@ -54,7 +55,9 @@ struct solicitudUsuario{
 struct solicitudUsuario *colaSolicitud;
 struct solicitudUsuario *colaEventos;
 
-
+//Variables
+int trabajar; // Mantiene a los atendedores de solicitudes trabajando hasta que se cierre el aeropuerto 
+int listaFac[2]; /* Lista donde los atendedores van a descansar */
 
 
 int main (){
@@ -65,6 +68,10 @@ int main (){
 	contadorSolicitudes=0;
 	contadorEventos=0;
 	condicionEmpezarActividad=0;
+	trabajar=0;
+	listaFac[0] = 0;
+	listaFac[1] = 0;
+	listaFac[2] = 0; 
 
 	//Tratamos las senyales
 	if(signal(SIGUSR1, manejadoraSolicitud)==SIG_ERR){
@@ -317,7 +324,21 @@ void *hiloUsuario(void *arg) {
 
 
 void *hiloAtendedorInvitacion(void *arg) {
-	printf("Hilo atendedor invitacion inicializado\n");
+	int idFacturador = 1; //Inicializamos el id de facturador con 1 al tratarse de invitacion
+	int pos;
+	int uMinPos = -1;
+	int atencion;
+	int estoyAtendiendo = 0; /* Variable que sirve para comprobar si esta ocupado */
+	int uAtendidos = 0; /* Cuenta usuarios atendidos */
+	
+	while((contarMismoTipo(1) + contarMismoTipo(2)) == 0){
+		sleep(1); /* Espera */
+	} //busca si hay solicitudes esperando y si nolas hay descansa un segundo
+	
+	if ((contarMismoTipo(idFacturador) > 0) && (listaFac[idFacturador-1]=0)){
+		uMinPos= buscaMinId(1);
+
+}
 
 }
 
@@ -419,6 +440,44 @@ int buscarEspacioActividadSocial() {
 	printf("Terminado de buscar espacio Actividad Social\n");
 	return posicion; //Si encontramos un hueco devuelve su posicion, si no devuelve -1
 }
+
+/*
+ * Funcion que cuenta usuarios del mismo tipo que el facturador
+*/
+int contarMismoTipo(int idFacturador){
+
+	int i;
+	int contador = 0;
+	for(i = 0; i < maxUsuarios;i++){
+		pthread_mutex_lock(&semaforoDeUsuarios);
+		if(listaUsuarios[i].tipo == idFacturador && listaUsuarios[i].atendido == 0){
+			contador++;
+		}
+		pthread_mutex_unlock(&semaforoDeUsuarios);		
+	}
+return contador;
+} /* Cerrada */
+
+/*
+* Funcion para buscar el ID minimo
+*/
+int buscaMinId(int idAten){
+
+	int i;
+	int posicion; /* Variable donde se va a guardar la posicion del usuario que se va a atender */
+	
+	pthread_mutex_lock(&semaforoDeUsuarios);
+	int antMin = numUsuarios; /* Se inicializa con un valor de una variable global*/
+		for(i = 0; i<maxUsuarios;i++){
+			if(listaUsuarios[i].id != 0 && listaUsuarios[i].atendido == 0 && listaUsuarios[i].tipo == idAten && listaUsuarios[i].id <= antMin){
+			posicion = i;
+			antMin = listaUsuarios[i].id;
+			}
+		}
+		pthread_mutex_unlock(&semaforoDeUsuarios);
+
+return posicion;
+} //cerramos 
 
 
 
