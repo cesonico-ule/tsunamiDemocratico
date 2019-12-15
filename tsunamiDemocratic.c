@@ -334,6 +334,18 @@ void *hiloAtendedorPRO(void *arg) {
 
 void *hiloCoordinador(void *arg) {
 	printf("Hilo coordinador inicializado\n");
+
+	//Variable de condicion que espera a que se llene la actividad
+
+	pthread_mutex_lock(&semActividadSocial); //Lock al mutex
+	writeLogMessage("HiloCoordinador","La actividad social va a comenzar");
+	sleep(3); //Actividad de duracion de tres segundos
+	writeLogMessage("HiloCoordinador","La actividad social ha terminado");
+	pthread_mutex_unlock(&semActividadSocial); //Unlock al mutex
+
+	//Cierra el hilo
+	pthread_exit(NULL);
+
 }
 
 void manejadoraTerminar(){
