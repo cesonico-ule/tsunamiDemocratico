@@ -43,7 +43,7 @@ FILE *logFile;
 int contadorSolicitudes; //Numero unico para el id de la solicitud
 int contadorUsuarios; //Numero de usuarios en la aplicacion
 int contadorEventos; //Numero de usuarios en un evento
-
+int condicionEmpezarActividad; //0 si no ha empezado la actividad, 1 si esta en curso
 //Struct con los valores necesarios para el usuario
 struct solicitudUsuario{
 	int id;
@@ -63,6 +63,8 @@ int main (){
 	
 	//Inicializamos los contadores
 	contadorSolicitudes=0;
+	contadorEventos=0;
+	condicionEmpezarActividad=0;
 
 	//Tratamos las senyales
 	if(signal(SIGUSR1, manejadoraSolicitud)==SIG_ERR){
@@ -110,7 +112,7 @@ int main (){
 	pthread_create (&atendPRO, NULL, hiloAtendedorPRO, NULL);
 	pthread_create (&coordinadorSocial, NULL, hiloCoordinador, NULL);
 	
-	printf("Mandame senyales %i",getpid());
+	printf("---Mandame senyales PID: %i ---\n",getpid());
 
 	//Pause para que espere por las senyales
 	while(1) {
@@ -147,32 +149,191 @@ void manejadoraSolicitud(int sig){
 	}
 		
 	pthread_mutex_unlock(&semSolicitudes); //Abrimos el mutex
-	
-
-
-
 		
 }
 
+
 void *hiloUsuario(void *arg) {
 
+	//Cogemos el id pasado como argumento y lo almacenamos en una variable
+	int id=(int)arg;
+	//Buscamos la posicion que tiene el id del hilo en la lista
+	int posicion=buscarPosicionEnLista(id);
 
+	pthread_mutex_lock(&semLog);
+	writeLogMessage("HiloUsuario","Ha sido creado"); //Hay que escribir su id, etc
+	pthread_mutex_unlock(&semLog);
+	printf("Se ha creado un nuevo hilo %i \n",id);
+	
+	sleep(4);  //Duerme 4 segundos
+	int numeroAleatorio=-1;
+	while(colaSolicitud[posicion].atendido==0) {
+		//Si la solicitud es de tipo 1 (Invitacion) se calcula si se cansa de esperar
+		if(colaSolicitud[posicion].tipo==1) { 
+			numeroAleatorio=calculaAleatorios(1,10); //Calculamos un numero aleaorio
+			if(numeroAleatorio==1) {
+				printf("Se cancela la solicitud del usuario %i por cansarse de esperar\n",id);
+				//Cerramos el mutex para excribir en el log
+				pthread_mutex_lock(&semLog);
+				writeLogMessage("HiloUsuario","Se cansa de esperar y se calcela la solicitud");
+				pthread_mutex_unlock(&semLog);
+
+				//Cerramos el mutex para borrar de la lista al usuario
+				pthread_mutex_lock(&semSolicitudes);
+				colaSolicitud[posicion].id=0;
+				colaSolicitud[posicion].tipo=0;
+				colaSolicitud[posicion].atendido=0;
+				pthread_mutex_unlock(&semSolicitudes); 
+
+				//Terminamos el hilo
+				pthread_exit(NULL);
+			}
+			
+		}
+
+		//Si la solicitud es de tipo 2 (QR) se calcula si se va por no ser fiable
+		if(colaSolicitud[posicion].tipo==2) {
+			numeroAleatorio=calculaAleatorios(1,10); //Calculamos un numero aleaorio
+			if(numeroAleatorio<=3) {
+				printf("Se cancela la solicitud del usuario %i por no ser fiable\n",id);
+				//Cerramos el mutex para excribir en el log
+				pthread_mutex_lock(&semLog);
+				writeLogMessage("HiloUsuario","No es fiable la solicitud y se cancelan");
+				pthread_mutex_unlock(&semLog);
+
+				//Cerramos el mutex para borrar de la lista al usuario
+				pthread_mutex_lock(&semSolicitudes);
+				colaSolicitud[posicion].id=0;
+				colaSolicitud[posicion].tipo=0;
+				colaSolicitud[posicion].atendido=0;
+				pthread_mutex_unlock(&semSolicitudes); 
+
+				//Terminamos el hilo
+				pthread_exit(NULL);
+			}
+		
+		}
+
+		//Se calcula si le afecta que la aplicacion funcione mal a la solicitud
+		numeroAleatorio=calculaAleatorios(1,100); //Calculamos un numero aleaorio
+		if(numeroAleatorio<=15) {
+			printf("Se cancela la solicitud del usuario %i por el mal funcionamiento de la aplicacion\n",id);
+			//Cerramos el mutex para excribir en el log
+			pthread_mutex_lock(&semLog);
+			writeLogMessage("HiloUsuario","La aplicacion no funciona bien y cancela la solicitud");
+			pthread_mutex_unlock(&semLog);
+
+			//Cerramos el mutex para borrar de la lista al usuario
+			pthread_mutex_lock(&semSolicitudes);
+			colaSolicitud[posicion].id=0;
+			colaSolicitud[posicion].tipo=0;
+			colaSolicitud[posicion].atendido=0;
+			pthread_mutex_unlock(&semSolicitudes); 
+			//Terminamos el hilo
+			pthread_exit(NULL);
+		
+
+		}
+
+		sleep(4); //Duerme 4 segundos y vuelve a empezar el bucle.
+
+	}
+
+
+	while(colaSolicitud[posicion].atendido==1) { //Espera activa de que esta siendo atendido
+		//Espera activa hasta que se le termine de atender
+	}
+	
+	if(colaSolicitud[posicion].atendido==2) { //Ha sido atendido
+		printf("Al usuario %i se le ha terminado de atender",id);
+		int entradaActividad=0; //Variable que controla si ha entrado en la actividad
+		int decision=calculaAleatorios(0,10);
+		if(decision<5) {  //Intenta participar en una actividad social
+			
+		printf("El usuario %i decide entrar en una actividad social",id);
+			while(entradaActividad=0) {
+				pthread_mutex_lock(&semActividadSocial);
+				int posicionActividad;
+				posicionActividad=buscarEspacioActividadSocial();
+				if(contadorEventos<MAXSOCIALACT) { //Puede entrar
+					colaEventos[posicion].id=id;
+					contadorEventos++;
+					//Buscamos si no hay mas hueco en la actividad
+					if(contadorEventos==MAXSOCIALACT) { 
+						//Notifico para que se puede empezar la actividad
+						condicionEmpezarActividad=1; 
+					}
+					//Desbloqueo el mutex
+					pthread_mutex_unlock(&semActividadSocial);
+					//Lo quitamos de la lista de solicitudes
+					pthread_mutex_lock(&semSolicitudes);
+					colaSolicitud[posicion].id=0;
+					colaSolicitud[posicion].tipo=0;
+					colaSolicitud[posicion].atendido=0;
+					pthread_mutex_unlock(&semSolicitudes); 
+					pthread_mutex_lock(&semLog);
+					writeLogMessage("HiloUsuario","Esperando a que la actividad comience");
+					pthread_mutex_unlock(&semLog);
+					
+					//Variable de condicion que espere para comenzar
+					sleep(3);
+					
+					pthread_mutex_lock(&semLog);
+					writeLogMessage("HiloUsuario","Deja la actividad");
+					pthread_mutex_unlock(&semLog);
+
+
+					entradaActividad=1;
+
+				} else { //No hay hueco y se queda esperando
+
+					//Desbloqueamos el mutex
+					pthread_mutex_unlock(&semActividadSocial);
+					sleep(3);  //Duerme 3 segundos y vuelve a intentar entrar
+				}
+		
+			}
+
+		} else {   //No decide participar
+		
+		printf("El usuario %i decide no entrar en una actividad social",id);
+			//Lo quitamos de la lista de solicitudes
+			pthread_mutex_lock(&semSolicitudes); 
+			colaSolicitud[posicion].id=0;
+			colaSolicitud[posicion].tipo=0;
+			colaSolicitud[posicion].atendido=0;
+			pthread_mutex_unlock(&semSolicitudes); 
+			//Escribimos en el log
+			pthread_mutex_lock(&semLog);
+			writeLogMessage("HiloUsuario","decide no entrar en la actividad social");
+			pthread_mutex_unlock(&semLog);
+
+		}
+		//Terminamos el hilo
+		pthread_exit(NULL);
+	}
+			
 }
 
+
 void *hiloAtendedorInvitacion(void *arg) {
+	printf("Hilo atendedor invitacion inicializado\n");
 
 }
 
 void *hiloAtendedorQR(void *arg) {
+	printf("Hilo atendedor QR inicializado\n");
 
 }
 
 void *hiloAtendedorPRO(void *arg) {
+	printf("Hilo atendedor PRO inicializado\n");
 
 
 }
 
 void *hiloCoordinador(void *arg) {
+	printf("Hilo coordinador inicializado\n");
 }
 
 void manejadoraTerminar(){
@@ -213,6 +374,39 @@ int buscarEspacioSolicitud() {
 	return posicion; //Si encontramos un hueco devuelve su posicion, si no devuelve -1
 }
 
+//Busca la posicion de un usuario por el id argumentado en la lista de solicitudes
+int buscarPosicionEnLista(int idSolicitud) {
+	int posicion=0;
+	int posEncontrada=0;
+	int i=0;
+
+	while(i<MAXUSR && posEncontrada==0) { //Buscamos la posicion que contiene el id argumentado
+		if(colaSolicitud[i].id==idSolicitud) {
+			posicion=i;
+			posEncontrada=1;
+		}
+		i++;
+	}
+	return posicion; //Devolvemos la posicion en la lista
+}
+
+//Busca un espacio disponible para la entrada a la lista de actividades si lo encuentra
+//Si no lo encuentra devuelve -1
+int buscarEspacioActividadSocial() {
+	printf("Buscando espacio Actividad Social\n");
+	int posicion=-1;
+	int posEncontrada=0;
+
+	for(int i=0;i<MAXSOCIALACT && posEncontrada==0;i++) { //Buscamos donde hay un hueco libre
+		if(colaEventos[i].id==0) { //Si lo encuentra guardamos su posicion
+			posicion=i;
+			posEncontrada=1;
+		}
+	}
+	
+	printf("Terminado de buscar espacio Actividad Social\n");
+	return posicion; //Si encontramos un hueco devuelve su posicion, si no devuelve -1
+}
 
 
 
