@@ -4,6 +4,7 @@
 #include <signal.h>
 #include <time.h>
 #include <unistd.h>
+#include <string.h>
 
 #define MAXUSR 15
 #define MAXSOCIALACT 4
@@ -27,7 +28,7 @@ int calculaAleatorios(int min, int max);
 int buscarEspacioSolicitud(); //Devuelve la posicion donde haya un hueco en la lista de solicitudes, si no lo encuentre devuelve un -1.
 int contarMismoTipo(int idFacturador); //busca si hay solicitud del mismo tipo que el atendedor que esta esperando
 int buscaMinId(int idAten); /* Busca el usuario de minimo ID */
-void calculaEspera(int posUsuario); /* Calcula el tiempo de espera en la solicitud de  un usuario por el atendedor y devuelve si esta esta se acepta o no */
+int calculaEspera(int posUsuario); /* Calcula el tiempo de espera en la solicitud de  un usuario por el atendedor y devuelve si esta esta se acepta o no */
 
 // - -- --- VARIABLES GLOBALES --- -- -
 
@@ -37,7 +38,6 @@ pthread_mutex_t semaforo;
 pthread_mutex_t semLog;  //Mutex que controla la escritura en el log.
 pthread_mutex_t semSolicitudes;   //Mutex que controla la aprobacion o no de las solicitudes.
 pthread_mutex_t semActividadSocial;  //Mutex que controla la entrada a la actividad social.
-pthread_mutex_t semaforoDeUsuarios; // Mutex que controla los usuarios de la aplicacion
 
 //Archivo de logs: logFile
 FILE *logFile;
@@ -109,7 +109,6 @@ int main (){
 	if (pthread_mutex_init(&semLog, NULL)!=0) exit(-1); 
 	if (pthread_mutex_init(&semSolicitudes, NULL)!=0) exit(-1); 
 	if (pthread_mutex_init(&semActividadSocial, NULL)!=0) exit(-1); 
-	if (pthread_mutex_init(&semaforoDeUsuarios, NULL)!=0) exit(-1); 
 
 	//Creamos el archivo de los log si no existe ya
 	pthread_mutex_lock(&semLog);
@@ -460,10 +459,45 @@ void *hiloAtendedorQR(void *arg) {
 
 }
 
+void *hiloAtendedorPRO(void *arg) {
+	int idFacturador = 3; //Inicializamos el id de facturador con 2 al tratarse de QR
+	int pos;
+	int uMinPos = -1;
+	int atencion;
+	int uAtendidos = 0; /* Cuenta usuarios atendidos */
+	while((contarMismoTipo(1) + contarMismoTipo(2)) == 0){
+		sleep(1); /* Espera */
+	} //busca si hay solicitudes esperando y si nolas hay descansa un segundo 
+
+		uMinPos= buscaMinId(3);// Busca el usuario que mas lleva esperando
+		pasa = calculaEspera(uMinPos);// Se ve si la solicitud sigue adelante y si es asi esperara a ver si se mete en una actividad cultural de lo contario se mata el hilo.
+		uAtendidos = uAtendidos + 1; //incrementamos la variable que cuenta los que ha atendido
+if (pasa==0){ // si la solicitud avanza se cambia el numero de atendido
+			
+			pthread_mutex_lock(&semSolicitudes); 
+			colaSolicitud[uMinPos].atendido=2;
+			pthread_mutex_unlock(&semSolicitudes); 
+		
+}else { // si no pasa se elimina la solicitud
+
+			pthread_mutex_lock(&semSolicitudes); 
+			colaSolicitud[uMinPos].id=0;
+			colaSolicitud[uMinPos].tipo=0;
+			colaSolicitud[uMinPos].atendido=0;
+			pthread_mutex_unlock(&semSolicitudes); 
+}	
+
+
+			if(uAtendidos == 5){
+			
+			printf("ME voy a tomar un descanso\n");
+			listaAte[idFacturador-1]=1;
+			sleep(10);
+			listaAte[idFacturador-1]=0;
+			uAtendidos = 0;
+			
 }
 
-void *hiloAtendedorPRO(void *arg) {
-	printf("Hilo atendedor PRO inicializado\n");
 
 
 }
@@ -564,11 +598,11 @@ int contarMismoTipo(int idFacturador){
 	int i;
 	int contador = 0;
 	for(i = 0; i < MAXUSR;i++){
-		pthread_mutex_lock(&semaforoDeUsuarios);
-		if(solicitudUsuario[i].tipo == idFacturador && solicitudUsuario[i].atendido == 0){
+		pthread_mutex_lock(&semSolicitudes);
+		if(colaSolicitud[i].tipo == idFacturador && colaSolicitud[i].atendido == 0){
 			contador++;
 		}
-		pthread_mutex_unlock(&semaforoDeUsuarios);		
+		pthread_mutex_unlock(&semSolicitudes);		
 	}
 return contador;
 } /* Cerrada */
@@ -580,27 +614,41 @@ int buscaMinId(int idAten){
 
 	int i;
 	int posicion; /* Variable donde se va a guardar la posicion del usuario que se va a atender */
-	
-	pthread_mutex_lock(&semaforoDeUsuarios);
 	int antMin = MAXUSR; /* Se inicializa con un valor de una variable global*/
+
+	if(idAten ==3){
+	
+	pthread_mutex_lock(&semSolicitudes);
 		for(i = 0; i<MAXUSR;i++){
-			if(solicitudUsuario[i].id != 0 && solicitudUsuario[i].atendido == 0 && solicitudUsuario[i].tipo == idAten && solicitudUsuario[i].id <= antMin){
+			if(colaSolicitud[i].id != 0 && colaSolicitud[i].atendido == 0 && 				colaSolicitud[i].id <= antMin){
 			posicion = i;
-			antMin = solicitudUsuario[i].id;
+			antMin = colaSolicitud[i].id;
 			}
 		}
-		pthread_mutex_unlock(&semaforoDeUsuarios);
+		pthread_mutex_unlock(&semSolicitudes);
+
+}else{
+	
+	pthread_mutex_lock(&semSolicitudes);
+		for(i = 0; i<MAXUSR;i++){
+			if(colaSolicitud[i].id != 0 && colaSolicitud[i].atendido == 0 && colaSolicitud[i].tipo == idAten && colaSolicitud[i].id <= antMin){
+			posicion = i;
+			antMin = colaSolicitud[i].id;
+			}
+		}
+		pthread_mutex_unlock(&semSolicitudes);
+}
 
 return posicion;
 } //cerramos
 
-void calculaEspera(int posUsuario){
+int calculaEspera(int posUsuario){
 	int atencion = calculaAleatorios(1,10); /* Calcula los porcentajes para ver si el usuario lo tiene todo en regla */
 	int denegado = 0; // Numero que indica si el usuario se va a unir a una actividad cultural o no ya sea porque no ha pasado el control o porque la ha rechazado
 	int tiempoAtencion;
-			pthread_mutex_lock(&semaforoDeUsuarios);
-	int idUsuario = listaUsuarios[posUsuario].id;
-		pthread_mutex_unlock(&semaforoDeUsuarios);
+			pthread_mutex_lock(&semSolicitudes);
+	int idUsuario = colaSolicitud[posUsuario].id;
+		pthread_mutex_unlock(&semSolicitudes);
 	int sigue=0;
 		//Logs
 	pthread_mutex_lock(&semLog);
@@ -621,13 +669,13 @@ void calculaEspera(int posUsuario){
 			printf("Usuario %d : Tiene todo los documentos en regla.\n",idUsuario);
 		//Al estar todo en orden se pasa a decidir si quiere o no ir a una actividad cultural
 			//Logs
-			pthread_mutex_lock(&semaforoLog);
+			pthread_mutex_lock(&semLog);
 			char tiempo[10];
 			char msg[100] = "El usuario ha pasado el control con exito en el tiempo de ";
 			sprintf(tiempo, "%d", tiempoAtencion); /* Convierte a char el tiempo de atencion */
 			strcat(msg,tiempo);
-			escribirLog(usuario,msg);
-		pthread_mutex_unlock(&semaforoLog);
+			writeLogMessage(usuario,msg);
+		pthread_mutex_unlock(&semLog);
 		//Fin del log
 
 		}else if((atencion==8) || (atencion==9)){ //El 20% tiene problemas con sus datos personales
@@ -637,13 +685,13 @@ void calculaEspera(int posUsuario){
 // Aunque hay errores en sus datos personales el usuario pasa el control
 			
 			//Logs
-			pthread_mutex_lock(&semaforoLog);
+			pthread_mutex_lock(&semLog);
 			char tiempo[10];
 			char msg[100] = "El usuario ha pasado el control pese a que habia errores en sus datos en el tiempo de ";
 			sprintf(tiempo, "%d", tiempoAtencion); /* Convierte a char el tiempo de atencion */
 			strcat(msg,tiempo);
-			escribirLog(usuario,msg);
-		pthread_mutex_unlock(&semaforoLog);
+			writeLogMessage(usuario,msg);
+		pthread_mutex_unlock(&semLog);
 		//Fin del log
 
 } else { //Hay un 10% de solicitudes que no pasan el control porque tienen antecedentes
@@ -654,13 +702,13 @@ void calculaEspera(int posUsuario){
 // Aunque hay errores en sus datos personales el usuario pasa el control
 			
 			//Logs
-			pthread_mutex_lock(&semaforoLog);
+			pthread_mutex_lock(&semLog);
 			char tiempo[10];
 			char msg[100] = "El usuario ha pasado el control pese a que habia errores en sus datos en el tiempo de ";
 			sprintf(tiempo, "%d", tiempoAtencion); /* Convierte a char el tiempo de atencion */
 			strcat(msg,tiempo);
-			escribirLog(usuario,msg);
-		pthread_mutex_unlock(&semaforoLog);
+			writeLogMessage(usuario,msg);
+		pthread_mutex_unlock(&semLog);
 		//Fin del log
 
 
