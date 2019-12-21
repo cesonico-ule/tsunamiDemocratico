@@ -38,6 +38,9 @@ pthread_mutex_t semLog;  //Mutex que controla la escritura en el log.
 pthread_mutex_t semSolicitudes;   //Mutex que controla la aprobacion o no de las solicitudes.
 pthread_mutex_t semActividadSocial;  //Mutex que controla la entrada a la actividad social.
 
+//Condicion
+pthread_cond_t condicion;
+
 //Archivo de logs: logFile
 FILE *logFile;
 
@@ -115,7 +118,10 @@ int main (){
  	//Creamos los hilos
 	pthread_t atendInv, atendQR, atendPRO, coordinadorSocial;
 	pthread_create (&atendInv, NULL, hiloAtendedor, (void*)1); //////////////////CREAR LOS OTROS 2
-	pthread_create (&coordinadorSocial, NULL, hiloCoordinador, NULL); 
+	pthread_create (&coordinadorSocial, NULL, hiloCoordinador, NULL);
+
+	//Inicializamos la condición
+	 if (pthread_cond_init(&condicion, NULL)!=0) exit(-1);
 
 	
 	printf("---Mandame senyales PID: %i ---\n",getpid());
@@ -271,6 +277,7 @@ void *hiloUsuario(void *arg) {
 					if(contadorEventos==MAXSOCIALACT) { 
 						//Notifico para que se puede empezar la actividad
 						condicionEmpezarActividad=1; 
+						pthread_cond_signal(&condicion);
 					}
 					//Desbloqueo el mutex
 					pthread_mutex_unlock(&semActividadSocial);
@@ -395,13 +402,19 @@ void *hiloAtendedor(void *arg) {
 
 void *hiloCoordinador(void *arg) {
 	printf("Hilo coordinador inicializado\n");
+	pthread_cond_wait(&condicion, &semActividadSocial);
 
 	//Variable de condicion que espera a que se llene la actividad
-
-	pthread_mutex_lock(&semActividadSocial); //Lock al mutex
+	pthread_mutex_lock(&semActividadSocial); //Lock al mutex de la actividad social
+	pthread_mutex_lock(&semLog); 
 	writeLogMessage("HiloCoordinador","La actividad social va a comenzar");
+	pthread_mutex_unlock(&semLog);
+
 	sleep(3); //Actividad de duracion de tres segundos
+
+	pthread_mutex_lock(&semLog); 
 	writeLogMessage("HiloCoordinador","La actividad social ha terminado");
+	pthread_mutex_unlock(&semLog);
 	pthread_mutex_unlock(&semActividadSocial); //Unlock al mutex
 
 	//Cierra el hilo
@@ -412,6 +425,11 @@ void manejadoraTerminar(){
 	fin=1;
 	//esperar a que se termine de atender a usuarios
 	terminarTrabajar=1;
+
+	//No pasará mientras el contador indique que se puede producir un evento
+	while(contadorEventos == 4 ){ }
+	pthread_exit(NULL); 
+
 }
 
 void writeLogMessage(char *id, char *msg) { 
