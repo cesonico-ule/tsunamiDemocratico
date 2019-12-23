@@ -23,9 +23,12 @@ void manejadoraTerminar();
 //Auxiliares
 void writeLogMessage(char *id, char *msg);
 int calculaAleatorios(int min, int max);
-int buscarEspacioSolicitud(); //Devuelve la posicion donde haya un hueco en la lista de solicitudes, si no lo encuentre devuelve un -1.
-int buscarSolicitudTipo(int tipo);
+int buscarEspacioSolicitud();
+int buscarPosicionEnLista(int idSolicitud);
+int buscarEspacioActividadSocial();
 int numSolicitudTipo(int tipo);
+int usuarioMinId(int tipo); 
+int calcularAtencion();
 void atendiendo(int pos, int idUser, int atendedorId);
 
 
@@ -120,7 +123,9 @@ int main (){
 
  	//Creamos los hilos
 	pthread_t atendInv, atendQR, atendPRO, coordinadorSocial;
-	pthread_create (&atendInv, NULL, hiloAtendedor, (void*)1); //////////////////CREAR LOS OTROS 2
+	pthread_create (&atendInv, NULL, hiloAtendedor, (void*)1);
+	pthread_create (&atendQR, NULL, hiloAtendedor, (void*)2);
+	pthread_create (&atendPRO, NULL, hiloAtendedor, (void*)3);
 	pthread_create (&coordinadorSocial, NULL, hiloCoordinador, NULL);
 
 	//Inicializamos la condición
@@ -142,7 +147,12 @@ int main (){
 //Llega una senyal y se crea una nueva solicitud de usuario
 
 void manejadoraSolicitud(int sig){ //Cerramos el mutex
-	printf("Ha llegado una solicitud \n");
+	printf("Ha llegado una solicitud");
+	if(sig==1) {
+		printf(" de tipo invitacion\n");
+	} else {
+		printf(" de tipo QR\n");
+	}
 	int posicion=buscarEspacioSolicitud(); //Buscamos una posicion en la que haya hueco
 
 	if(posicion!=-1) { //Si encontramos un hueco
@@ -160,8 +170,7 @@ void manejadoraSolicitud(int sig){ //Cerramos el mutex
 		}
 		
 		pthread_mutex_unlock(&semSolicitudes); //Abrimos el mutex
-		
-		printf("Voy a crear el hilo \n");
+
 		pthread_t user; //Declaro el usuario
 		//Creo el hilo y le paso de argumentos la posicion de su numero de id.
 		pthread_create(&user,NULL,hiloUsuario, (void *)colaSolicitud[posicion].id); 
@@ -180,16 +189,17 @@ void *hiloUsuario(void *arg) {
 	int id=(int *)arg;
 	//Buscamos la posicion que tiene el id del hilo en la lista
 	int posicion=buscarPosicionEnLista(id);
-
+	char identificacion[100]; //Identificacion del usuario para cuando se escriban los mensajes en el log
+	
+	sprintf(identificacion, "Usuario con ID %i y tipo %i | ",id,colaSolicitud[posicion].tipo);
 	pthread_mutex_lock(&semLog);
-	writeLogMessage("HiloUsuario","Ha sido creado"); //Hay que escribir su id, etc
+	writeLogMessage(identificacion,"Ha sido creado"); //Hay que escribir su id, etc
 	pthread_mutex_unlock(&semLog);
-	printf("Se ha creado un nuevo hilo %i \n",id);
+	printf("Se ha iniciado una nueva solicitud con ID %i \n",id);
 	
 	sleep(4);  //Duerme 4 segundos
 	int numeroAleatorio=0;
-	while(colaSolicitud[posicion].atendido==0) {
-		printf("Hilo usuario %i esta esperando\n",id);
+	while(colaSolicitud[posicion].atendido==0) { 
 		//Si la solicitud es de tipo 1 (Invitacion) se calcula si se cansa de esperar
 		if(colaSolicitud[posicion].tipo==1) { 
 			numeroAleatorio=calculaAleatorios(1,10); //Calculamos un numero aleaorio
@@ -197,7 +207,7 @@ void *hiloUsuario(void *arg) {
 				printf("Se cancela la solicitud del usuario %i por cansarse de esperar\n",id);
 				//Cerramos el mutex para excribir en el log
 				pthread_mutex_lock(&semLog);
-				writeLogMessage("HiloUsuario","Se cansa de esperar y se calcela la solicitud");
+				writeLogMessage(identificacion,"Se cansa de esperar y se calcela la solicitud");
 				pthread_mutex_unlock(&semLog);
 
 				//Cerramos el mutex para borrar de la lista al usuario
@@ -220,7 +230,7 @@ void *hiloUsuario(void *arg) {
 				printf("Se cancela la solicitud del usuario %i por no ser fiable\n",id);
 				//Cerramos el mutex para excribir en el log
 				pthread_mutex_lock(&semLog);
-				writeLogMessage("HiloUsuario","No es fiable la solicitud y se cancelan");
+				writeLogMessage(identificacion,"No es fiable la solicitud y se cancelan");
 				pthread_mutex_unlock(&semLog);
 
 				//Cerramos el mutex para borrar de la lista al usuario
@@ -242,7 +252,7 @@ void *hiloUsuario(void *arg) {
 			printf("Se cancela la solicitud del usuario %i por el mal funcionamiento de la aplicacion\n",id);
 			//Cerramos el mutex para excribir en el log
 			pthread_mutex_lock(&semLog);
-			writeLogMessage("HiloUsuario","La aplicacion no funciona bien y cancela la solicitud");
+			writeLogMessage(identificacion,"La aplicacion no funciona bien y cancela la solicitud");
 			pthread_mutex_unlock(&semLog);
 
 			//Cerramos el mutex para borrar de la lista al usuario
@@ -261,16 +271,22 @@ void *hiloUsuario(void *arg) {
 
 
 	while(colaSolicitud[posicion].atendido==1) { //Espera activa de que esta siendo atendido
-		//Espera activa hasta que se le termine de atender
+		sleep(1);//Espera activa hasta que se le termine de atender
 	}
 	
 	if(colaSolicitud[posicion].atendido==2) { //Ha sido atendido
 		printf("Al usuario %i se le ha terminado de atender \n",id);
+		pthread_mutex_lock(&semLog);
+			writeLogMessage(identificacion,"Se le ha terminado de atender");
+		pthread_mutex_unlock(&semLog);
 		int entradaActividad=0; //Variable que controla si ha entrado en la actividad
 		int decision=calculaAleatorios(0,10);
 		if(decision<5) {  //Intenta participar en una actividad social
 			
-		printf("El usuario %i decide entrar en una actividad social \n",id);
+			printf("El usuario %i decide entrar en una actividad social \n",id);
+			pthread_mutex_lock(&semLog);
+			writeLogMessage(identificacion,"Decide entrar en una actividad social");
+			pthread_mutex_unlock(&semLog);
 			while(entradaActividad==0) { 
 				pthread_mutex_lock(&semActividadSocial);
 				int posicionActividad;
@@ -297,8 +313,9 @@ void *hiloUsuario(void *arg) {
 					colaSolicitud[posicion].tipo=0;
 					colaSolicitud[posicion].atendido=0;
 					pthread_mutex_unlock(&semSolicitudes); 
+
 					pthread_mutex_lock(&semLog);
-					writeLogMessage("HiloUsuario","Esperando a que la actividad comience");
+					writeLogMessage(identificacion,"Esperando a que la actividad comience");
 					pthread_mutex_unlock(&semLog);
 
 					//Espero a que pueda empezar la actividad
@@ -314,7 +331,7 @@ void *hiloUsuario(void *arg) {
 
 					if(contadorEventos==0) { //El ultimo que quede por salir le manda una senyal al coordinador
 						
-						printf("ENviando senyal \n");
+						printf("Enviando senyal \n");
 						pthread_cond_signal(&salirActividad);
 					}
 					pthread_mutex_lock(&semActividadSocial);
@@ -322,7 +339,7 @@ void *hiloUsuario(void *arg) {
 					pthread_mutex_unlock(&semActividadSocial); 
 		
 					pthread_mutex_lock(&semLog);
-					writeLogMessage("HiloUsuario","Deja la actividad");
+					writeLogMessage(identificacion,"Deja la actividad");
 					pthread_mutex_unlock(&semLog);
 
 				} else { //No hay hueco y se queda esperando
@@ -332,26 +349,29 @@ void *hiloUsuario(void *arg) {
 		
 			}
 
-		} else {   //No decide participar
+		} else {   //Decide no participar
 		
 		printf("El usuario %i decide no entrar en una actividad social \n",id);
-			//Lo quitamos de la lista de solicitudes
-			pthread_mutex_lock(&semSolicitudes); 
-			colaSolicitud[posicion].id=0;
-			colaSolicitud[posicion].tipo=0;
-			colaSolicitud[posicion].atendido=0;
-			pthread_mutex_unlock(&semSolicitudes); 
-			//Escribimos en el log
-			pthread_mutex_lock(&semLog);
-			writeLogMessage("HiloUsuario","decide no entrar en la actividad social");
-			pthread_mutex_unlock(&semLog);
+		//Lo quitamos de la lista de solicitudes
+		pthread_mutex_lock(&semSolicitudes); 
+		colaSolicitud[posicion].id=0;
+		colaSolicitud[posicion].tipo=0;
+		colaSolicitud[posicion].atendido=0;
+		pthread_mutex_unlock(&semSolicitudes); 
+		//Escribimos en el log
+		pthread_mutex_lock(&semLog);
+		writeLogMessage(identificacion,"decide no entrar en la actividad social");
+		pthread_mutex_unlock(&semLog);
 
 		}
 		
 	}
-	if(colaSolicitud[posicion].atendido==3) {
+	if(colaSolicitud[posicion].atendido==3) { //Usuario que no puede entrar a una actividad social
 		printf("El usuario %i ha sido atendido pero tiene antecedentes policiales \n",id);
 		pthread_mutex_lock(&semSolicitudes); 
+		pthread_mutex_lock(&semLog);
+		writeLogMessage(identificacion,"ha sido atendido pero tiene antecedentes policiales");
+		pthread_mutex_unlock(&semLog);
 		colaSolicitud[posicion].id=0;
 		colaSolicitud[posicion].tipo=0;
 		colaSolicitud[posicion].atendido=0;
@@ -360,7 +380,7 @@ void *hiloUsuario(void *arg) {
 	//Terminamos el hilo
 		printf("El usuario %i sale de la aplicacion \n",id);
 		pthread_mutex_lock(&semLog);
-		writeLogMessage("HiloUsuario","Sale de la aplicacion");
+		writeLogMessage(identificacion,"Sale de la aplicacion");
 		pthread_mutex_unlock(&semLog);
 		pthread_exit(NULL);
 			
@@ -370,10 +390,19 @@ void *hiloUsuario(void *arg) {
 void *hiloAtendedor(void *arg) {
 	int idAtendedor=(int *)arg;
 	
-	printf("Hilo atendedor %i inicializado \n",idAtendedor);
 	int numAtendidos=0;
 	int ocupado=0;
 	int posUsuario;
+	char identificacion[100]; //Identificacion del usuario para cuando se escriban los mensajes en el log
+	
+	if(idAtendedor==1) {
+		sprintf(identificacion, "Atendedor %i de tipo Invitacion| ",idAtendedor);
+	} else if(idAtendedor==2) {
+		sprintf(identificacion, "Atendedor %i de tipo QR| ",idAtendedor);
+	} else {
+		sprintf(identificacion, "Atendedor %i de tipo PRO| ",idAtendedor);
+	}
+	
 
 
 	while(terminarTrabajar==0) {
@@ -480,7 +509,6 @@ int calculaAleatorios(int min, int max) {
 //Si no lo encuentra devuelve -1
 
 int buscarEspacioSolicitud() {
-	printf("Buscando espacio\n");
 	int posicion=-1;
 	int posEncontrada=0;
 
@@ -491,7 +519,6 @@ int buscarEspacioSolicitud() {
 		}
 	}
 	
-	printf("Terminado de buscar espacio\n");
 	return posicion; //Si encontramos un hueco devuelve su posicion, si no devuelve -1
 }
 
@@ -519,7 +546,6 @@ int buscarPosicionEnLista(int idSolicitud) {
 //Busca un espacio disponible para la entrada a la lista de actividades si lo encuentra
 //Si no lo encuentra devuelve -1
 int buscarEspacioActividadSocial() {
-	printf("Buscando espacio Actividad Social\n");
 	int posicion=-1;
 	int posEncontrada=0;
 
@@ -529,12 +555,10 @@ int buscarEspacioActividadSocial() {
 			posEncontrada=1;
 		}
 	}
-	
-	printf("Terminado de buscar espacio Actividad Social\n");
 	return posicion; //Si encontramos un hueco devuelve su posicion, si no devuelve -1
 }
 
-//Cuenta el numero de solicitudes que hay del tipo argumentado
+//Cuenta el numero de solicitudes que hay del tipo argumentado y lo devuelve
 int numSolicitudTipo(int tipo) {
 	int num=0;
 	pthread_mutex_lock(&semSolicitudes); 
@@ -548,7 +572,7 @@ int numSolicitudTipo(int tipo) {
 	return num;
 }
 
-//Busca el usuario con el minimo id de un tipo.
+//Busca el usuario con el minimo id de un tipo y devuelve su posicion
 int usuarioMinId(int tipo) {
 
 	int minId= INT_MAX;
@@ -580,7 +604,10 @@ int usuarioMinId(int tipo) {
 	return position;
 }
 
-
+//Funcion que devuelve un valor de atencion aleatoriamente. 
+//Si el numero generado aleatoriamente esta entre el 1 y el 7 devolvera 0 (todo correcto)
+//Si es el 8 o el 9 devolver un 1 (Error en datos personales)
+//Si es el 10 devolvera un 2  (Usuario con antecedentes policiales)
 int calcularAtencion() {
 	int numAleatorio=calculaAleatorios(1,10);
 	int atencion=-1;
@@ -598,34 +625,54 @@ return atencion;
 
 }
 
-//Calcula si el usuario tiene todo en regla, hay error con sus datos personales o tiene expediente policial y lo registra en el log
+//Revisa si el usuario tiene todo en regla, hay error con sus datos personales o tiene expediente policial y lo registra en el log
 
 void atendiendo(int pos, int idUser, int atendedorId) {
 	int atencion;
+	char identificacion[100];
+	char mensaje[100];
+	int tiempo;
+	sprintf(identificacion, "Atendedor %i",atendedorId);
 	printf("Atendedor %i atiende al usuario %i \n",atendedorId,idUser);
 	atencion=calcularAtencion(); //Calculamos la atencion
-	printf("Atendedor %i atiende al usuario %i y atencion %i \n",atendedorId,idUser,atencion);
 	//Escribimos en el log
 	pthread_mutex_lock(&semLog); 
-	writeLogMessage("Atendedor 1","Atiende al usuario -insertar numero-");
+	writeLogMessage(identificacion,"Atiende al usuario -insertar numero-");
 	pthread_mutex_unlock(&semLog);
 	if(atencion==0) {
-		sleep(calculaAleatorios(1,4));
+		tiempo=calculaAleatorios(1,4);
+		sleep(tiempo);
+		
+		printf("Atendedor %i termina de atender al usuario %i \n",atendedorId,idUser);
+		
+		printf("Atencion correcta del usuario %i \n",idUser);
 		pthread_mutex_lock(&semLog);
-		writeLogMessage("Atendedor ","Termina de atender al usuario -insertar num-");
-		writeLogMessage("Atendedor ","Atencion correcta del usuario -insertar num-");
+		writeLogMessage(identificacion,"Termina de atender al usuario -insertar num-");
+		writeLogMessage(identificacion,"el usuario -insertar num- ha esparado -num- segundos");
+		writeLogMessage(identificacion,"Atencion correcta del usuario -insertar num-");
 		pthread_mutex_unlock(&semLog);
 	} else if(atencion==1) {
-		sleep(calculaAleatorios(2,6));
+		printf("Atendedor %i termina de atender al usuario %i \n",atendedorId,idUser);
+		
+		printf("Error en datos personales del usuario %i \n",idUser);
+		tiempo=calculaAleatorios(2,6);
+		sleep(tiempo);
 		pthread_mutex_lock(&semLog);
-		writeLogMessage("Atendedor ","Termina de atender al usuario -insertar num-");
-		writeLogMessage("Atendedor ","Algun error en datos personales del usuario -insertar num-");
+		writeLogMessage(identificacion,"Termina de atender al usuario -insertar num-");
+		writeLogMessage(identificacion,"el usuario -insertar num- ha esparado -num- segundos");
+		writeLogMessage(identificacion,"Algun error en datos personales del usuario -insertar num-");
 		pthread_mutex_unlock(&semLog);
 	} else if(atencion==2) {
-		sleep(calculaAleatorios(6,10));
+		printf("Atendedor %i termina de atender al usuario %i \n",atendedorId,idUser);
+		
+		printf("Encontrada ficha policial del usuario %i \n",idUser);
+
+		tiempo=calculaAleatorios(6,10);
+		sleep(tiempo);
 		pthread_mutex_lock(&semLog);
-		writeLogMessage("Atendedor ","Termina de atender al usuario -insertar num-");
-		writeLogMessage("Atendedor ","Encontrada ficha policial con antecedentes del usuario -insertar num-");
+		writeLogMessage(identificacion,"Termina de atender al usuario -insertar num-");
+		writeLogMessage(identificacion,"el usuario -insertar num- ha esparado -num- segundos");
+		writeLogMessage(identificacion,"Encontrada ficha policial con antecedentes del usuario -insertar num-");
 		pthread_mutex_unlock(&semLog);
 	}
 	//Cambiamos el flag de atendido
@@ -636,7 +683,6 @@ void atendiendo(int pos, int idUser, int atendedorId) {
 		colaSolicitud[pos].atendido=3; //No podra unirse a una actividad social
 	}
 	pthread_mutex_unlock(&semSolicitudes);
-	printf("Atendedor %i deja de antender al usuario %i \n",atendedorId,idUser);
 }
 
 		
