@@ -6,8 +6,6 @@
 #include <unistd.h>
 #include <limits.h> //Para añadir el valor de MAX_INT (mayor valor que cabe en un entero)
 
-#define MAXUSR 15
-#define MAXSOCIALACT 4
 
 
 // - -- --- METODOS --- -- -
@@ -52,12 +50,16 @@ pthread_cond_t salirActividad;
 FILE *logFile;
 
 //Contadores
+int MAXUSR; //Numero maximo de solicitudes de usuario
+int MAXSOCIALACT; //Numero maximo de personas en una actividad social
+int MAXATEND; //Numero maximo de atendedores
 int contadorSolicitudes; //Numero unico para el id de la solicitud
 int contadorUsuarios; //Numero de usuarios en la aplicacion
 int contadorEventos; //Numero de usuarios en un evento
 int condicionEmpezarActividad; //0 si no ha empezado la actividad, 1 si esta en curso
 int fin; //Variable que controla el finald el programa
-int terminarTrabajar; //Variable que controla que cuando se acabe el programa y los atendedores no esten ocupados puedan dejar de trabajar.
+int contadorFinAtendedores; //Cada vez que un atendedor termine se aumenta en 1
+
 
 
 //Struct con los valores necesarios para el usuario
@@ -78,9 +80,13 @@ int main (){
 	srand(time(NULL));
 	
 	//Inicializamos los contadores
+	MAXUSR=15; 
+	MAXSOCIALACT=4;
+	MAXATEND=3;
 	contadorSolicitudes=0;
 	contadorEventos=0;
 	condicionEmpezarActividad=0;
+	contadorFinAtendedores=0;
 	fin=0;
 
 	//Tratamos las senyales
@@ -141,7 +147,7 @@ int main (){
 	if (pthread_cond_init(&salirActividad, NULL)!=0) exit(-1);
 
 	
-	printf("---Mandame senyales PID: %i ---\n",getpid());
+	printf("\t \t ---Mandame senyales para crear solicitudes PID: %i ---\n",getpid());
 
 	//Pause para que espere por las senyales
 	while(1) {
@@ -152,39 +158,39 @@ int main (){
 //Llega una senyal y se crea una nueva solicitud de usuario
 
 void manejadoraSolicitud(int sig){ //Cerramos el mutex
-	printf("Ha llegado una solicitud");
-	if(sig==SIGUSR1) {
-		printf(" de tipo invitacion\n");
-	} else {
-		printf(" de tipo QR\n");
-	}
-	int posicion=buscarEspacioSolicitud(); //Buscamos una posicion en la que haya hueco
-
-	if(posicion!=-1) { //Si encontramos un hueco
-		
-		pthread_mutex_lock(&semSolicitudes);
-		contadorSolicitudes++; //Incrementamos el contador de solicitudes
-		colaSolicitud[posicion].id=contadorSolicitudes; //Le asignamos un id
-		colaSolicitud[posicion].atendido=0; //Ponemos que no esta atendido ya que acaba de llegar
-		if(sig==SIGUSR1) { //Si le llega la senyal SIGUSR1 será de tipo 1 
-			colaSolicitud[posicion].tipo=1;
+	if(fin==0) { //Si se termina el programa se ignora la senyal
+		printf("Ha llegado una solicitud");
+		if(sig==SIGUSR1) {
+			printf(" de tipo invitacion\n");
+		} else {
+			printf(" de tipo QR\n");
 		}
+		int posicion=buscarEspacioSolicitud(); //Buscamos una posicion en la que haya hueco
 
-		if(sig==SIGUSR2) { //Si le llega la senyal SIGUSR1 será de tipo 2
-			colaSolicitud[posicion].tipo=2;
+		if(posicion!=-1) { //Si encontramos un hueco
+			
+			pthread_mutex_lock(&semSolicitudes);
+			contadorSolicitudes++; //Incrementamos el contador de solicitudes
+			colaSolicitud[posicion].id=contadorSolicitudes; //Le asignamos un id
+			colaSolicitud[posicion].atendido=0; //Ponemos que no esta atendido ya que acaba de llegar
+			if(sig==SIGUSR1) { //Si le llega la senyal SIGUSR1 será de tipo 1 
+				colaSolicitud[posicion].tipo=1;
+			}
+
+			if(sig==SIGUSR2) { //Si le llega la senyal SIGUSR1 será de tipo 2
+				colaSolicitud[posicion].tipo=2;
+			}
+			
+			pthread_mutex_unlock(&semSolicitudes); //Abrimos el mutex
+
+			pthread_t user; //Declaro el usuario
+			//Creo el hilo y le paso de argumentos la posicion de su numero de id.
+			pthread_create(&user,NULL,hiloUsuario, (void *)colaSolicitud[posicion].id); 
+		
+		} else {
+			printf("No hay espacio para solicitudes, se ignora la senyal \n");
 		}
-		
-		pthread_mutex_unlock(&semSolicitudes); //Abrimos el mutex
-
-		pthread_t user; //Declaro el usuario
-		//Creo el hilo y le paso de argumentos la posicion de su numero de id.
-		pthread_create(&user,NULL,hiloUsuario, (void *)colaSolicitud[posicion].id); 
-	
-	} else {
-		printf("No hay espacio para solicitudes, se ignora la senyal \n");
 	}
-		
-		
 }
 
 
@@ -204,7 +210,7 @@ void *hiloUsuario(void *arg) {
 	
 	sleep(4);  //Duerme 4 segundos
 	int numeroAleatorio=0;
-	while(colaSolicitud[posicion].atendido==0) { 
+	while(colaSolicitud[posicion].atendido==0) { //Mientras este el usuario y aun el programa no haya sido terminado
 		//Si la solicitud es de tipo 1 (Invitacion) se calcula si se cansa de esperar
 		if(colaSolicitud[posicion].tipo==1) { 
 			numeroAleatorio=calculaAleatorios(1,10); //Calculamos un numero aleaorio
@@ -285,9 +291,8 @@ void *hiloUsuario(void *arg) {
 			writeLogMessage(identificacion,"Se le ha terminado de atender");
 		pthread_mutex_unlock(&semLog);
 		int entradaActividad=0; //Variable que controla si ha entrado en la actividad
-		int decision=calculaAleatorios(0,10);
-		if(decision<20) {  //Intenta participar en una actividad social //////////////////////////CAMBIADO PARA QUE SIEMPRE ENTRE
-			
+		int decision=calculaAleatorios(1,10);
+		if(decision<=5 && fin==0) {  //Intenta participar en una actividad, mientras no se haya acabado el programa puede entrar
 			printf("El usuario %i decide entrar en una actividad social \n",id);
 			pthread_mutex_lock(&semLog);
 			writeLogMessage(identificacion,"Decide entrar en una actividad social");
@@ -298,15 +303,16 @@ void *hiloUsuario(void *arg) {
 				posicionActividad=buscarEspacioActividadSocial();
 				if(contadorEventos<MAXSOCIALACT && condicionEmpezarActividad==0) { //Puede entrar
 					//Desbloqueo el mutex
-					colaEventos[posicion].id=id;
+
+					colaEventos[posicionActividad].id=id;
 					pthread_mutex_unlock(&semActividadSocial);
 					entradaActividad=1;
 
 					contadorEventos++;
-					printf("%i \n",contadorEventos);
 
 
 					//Lo quitamos de la lista de solicitudes
+
 					pthread_mutex_lock(&semSolicitudes);
 					colaSolicitud[posicion].id=0;
 					colaSolicitud[posicion].tipo=0;
@@ -317,49 +323,44 @@ void *hiloUsuario(void *arg) {
 					writeLogMessage(identificacion,"Esperando a que la actividad comience");
 					pthread_mutex_unlock(&semLog);
 
-					printf("contador eventos %i \n",contadorEventos);
 					//Buscamos si no hay mas hueco en la actividad
 					if(contadorEventos==4) { 
 						//Notifico para que se puede empezar la actividad
 						printf("Llamada a que empiece la actividad\n");
+						pthread_mutex_lock(&semLog);
+						writeLogMessage(identificacion,"Notifica de que se puede empezar la actividad");
+						pthread_mutex_unlock(&semLog);
 						condicionEmpezarActividad=1; 
 						pthread_cond_signal(&condicion);
 					}
-					printf("Esperando hilo %i \n",id);
 					//Espero a que pueda empezar la actividad
 					pthread_mutex_lock(&semActividadSocial);
 					
 					int signal=contadorEventos;
-					
-					printf("El usuario %i espera por la condicion %i \n",id,contadorEventos-1);
+	
 					pthread_cond_wait(&entrarActividad[contadorEventos-1], &semActividadSocial);
 
-					printf("El usuario %i ha entrado \n",id);
-	
-					sleep(3);
-
-					printf("El usuario %i pasa por aqui \n",id);
-
-					colaEventos[posicion].id=0;
-		
+					sleep(3); //Despues de esperar 3 segundo se va de la actividad
+					colaEventos[posicionActividad].id=0; //Borramos su id de la posicion de la lista
 					pthread_mutex_lock(&semLog);
 					writeLogMessage(identificacion,"Deja la actividad");
 					pthread_mutex_unlock(&semLog);
 					
-					printf("El usuario %i ha escrito en el log \n",id);
 					contadorEventos=contadorEventos-1;
 					
 					
-					printf("Usuario va a salir: contador eventos %i \n",contadorEventos);
+					printf("Usuario %i va a salir de la actividad: contador eventos %i \n",id,contadorEventos);
 					pthread_cond_signal(&entrarActividad[signal]);
 					if(contadorEventos==0) { //El ultimo que quede por salir le manda una senyal al coordinador
-						
-						printf("Enviando senyal \n");
+											pthread_mutex_lock(&semLog);
+					writeLogMessage(identificacion,"Notifica de que es el ultimo usuario en salir de la actividad");
+					pthread_mutex_unlock(&semLog);
 						pthread_cond_signal(&salirActividad);
 						condicionEmpezarActividad==0; //Termina la actividad
 					}
 					pthread_mutex_unlock(&semActividadSocial);
 					printf("Usuario %i deja la actividad social \n",id);
+
 					
 				} else { //No hay hueco y se queda esperando
 					pthread_mutex_unlock(&semActividadSocial); //Desbloqueamos el mutex
@@ -370,7 +371,7 @@ void *hiloUsuario(void *arg) {
 
 		} else {   //Decide no participar
 		
-		printf("El usuario %i decide no entrar en una actividad social \n",id);
+		printf("El usuario %i no entra en una actividad social \n",id);
 		//Lo quitamos de la lista de solicitudes
 		pthread_mutex_lock(&semSolicitudes); 
 		colaSolicitud[posicion].id=0;
@@ -379,7 +380,7 @@ void *hiloUsuario(void *arg) {
 		pthread_mutex_unlock(&semSolicitudes); 
 		//Escribimos en el log
 		pthread_mutex_lock(&semLog);
-		writeLogMessage(identificacion,"decide no entrar en la actividad social");
+		writeLogMessage(identificacion,"no entra en la actividad social");
 		pthread_mutex_unlock(&semLog);
 
 		}
@@ -407,8 +408,8 @@ void *hiloUsuario(void *arg) {
 
 
 void *hiloAtendedor(void *arg) {
-	int idAtendedor=(int *)arg;
-	
+	int idAtendedor=(int *)arg;	
+	int terminarTrabajar=0; //Variable que controla que cuando se acabe el programa y los atendedores no esten ocupados puedan dejar de trabajar.
 	int numAtendidos=0;
 	int ocupado=0;
 	int posUsuario;
@@ -424,13 +425,21 @@ void *hiloAtendedor(void *arg) {
 	
 
 
-	while(terminarTrabajar==0) {
-		while(numSolicitudTipo(1)==0 && numSolicitudTipo(2)==0) { //No hay ninguna solicitud, por lo que espera	
+	while(1) {
+		while(numSolicitudTipo(1)==0 && numSolicitudTipo(2)==0) { //No hay ninguna solicitud, por lo que espera
+			if(fin==1) {
+				terminarTrabajar=1;
+				break;
+			}
 			sleep(1);
+		}
+		
+		if(terminarTrabajar==1) {
+			break;
 		}
 	
 
-		if(numSolicitudTipo(idAtendedor)>0 || idAtendedor==3) { //Si hay atendedores de su tipo buscamos un usuario para atender
+		if(numSolicitudTipo(idAtendedor)>0 || idAtendedor>=3) { //Si hay atendedores de su tipo buscamos un usuario para atender
 			posUsuario=usuarioMinId(idAtendedor); //Buscamos el usuario del mismo tipo con el menor id
 		
 		} else { //No hay usuario de su tipo por lo que buscamos de otro
@@ -457,62 +466,79 @@ void *hiloAtendedor(void *arg) {
 		//Mira si le toca tomar cafe
 		if(numAtendidos%5==0 && numAtendidos!=0) {
 			pthread_mutex_lock(&semLog); 
-			writeLogMessage("Atendedor 1","Se va a su descanso a tomar cafe");
+			writeLogMessage("Atendedor ","Se va a su descanso a tomar cafe");
 			pthread_mutex_unlock(&semLog);
 			sleep(10);
 			pthread_mutex_lock(&semLog); 
-			writeLogMessage("Atendedor 1","Vuelve de su descanso");
+			writeLogMessage("Atendedor ","Vuelve de su descanso");
 			pthread_mutex_unlock(&semLog);
 		}
 
 	}
+	contadorFinAtendedores++;
+	pthread_mutex_lock(&semLog);
+	writeLogMessage(identificacion,"ha terminado su trabajo");
+	pthread_mutex_unlock(&semLog);
+	printf("\t \t //-Terminado atendedor %i-//\n",idAtendedor);
 	pthread_exit(NULL);
 
 }
 
 
 void *hiloCoordinador(void *arg) {
-	while(1) {
-		printf("Hilo coordinador inicializado\n"); 
-		
+	while(fin==0) {
 		pthread_mutex_lock(&semActividadSocial); //Cerramos el mutex
 		//Esperamos a que haya 4 usuarios en la actividad social
 		pthread_cond_wait(&condicion, &semActividadSocial);
-		condicionEmpezarActividad==1; //Empieza la actividad
-		printf("Empezando Actividad\n");
+		condicionEmpezarActividad=1; //Empieza la actividad
+		printf("\t \t ---Empezando Actividad---\n");
 
 		pthread_mutex_lock(&semLog); 
-		writeLogMessage("HiloCoordinador","La actividad social va a comenzar");
+		writeLogMessage("Hilo coordinador","La actividad social va a comenzar");
 		pthread_mutex_unlock(&semLog);
 		pthread_cond_signal(&entrarActividad[0]);
 
 
 
 
-		printf("En curso Actividad\n");
+		printf("\t \t ---En curso Actividad---\n");
 		pthread_cond_wait(&salirActividad, &semActividadSocial); //Espera a que el ultimo participante le avise de que ha termido
 		
 		pthread_mutex_lock(&semLog); 
-		writeLogMessage("HiloCoordinador","La actividad social ha terminado");
+		writeLogMessage("Hilo coordinador","La actividad social ha terminado");
 		pthread_mutex_unlock(&semLog);
 		
 		pthread_mutex_unlock(&semActividadSocial);  //Abrimos el mutex
 		
-		printf("Terminada actividad\n"); 
+		condicionEmpezarActividad=0; //Termina la actividad, pueden entrar personas a la actividad
+		printf("\t \t ---Terminada actividad---\n"); 
 	}
-
+		printf("\t \t //-Terminado hilo coordinador-//\n");
 		pthread_exit(NULL);
 
 	//Cierra el hilo
 }
 
 void manejadoraTerminar(){
-	fin=1;
-	//esperar a que se termine de atender a usuarios
-	terminarTrabajar=1;
+	
+	if(fin==0) {
+		printf("\t \t //-Ha llegado la senyal de terminar, terminando la aplicacion-//\n");
+		fin=1;
 
-	//No pasará mientras el contador indique que se puede producir un evento
-	while(condicionEmpezarActividad == 1 ){ }
+		while(contadorFinAtendedores!=MAXATEND){ //Esperamos a que terminen los atendedores de gestionar las solicitudes
+			sleep(1);
+		}
+		
+		while(condicionEmpezarActividad==1) { //Esperamos a que termine la actividad social si hay una en curso
+			sleep(1);
+		}
+		pthread_mutex_lock(&semLog);
+		writeLogMessage("Manejadora terminar programa ","termina el programa despues de que los atendedores terminen su trabajo");
+		pthread_mutex_unlock(&semLog);
+		printf("\t \t // -Se he terminado de atender y han acabado su trabajo los atendedores- //\n");
+		printf("\t \t // -Terminando aplicacion- //\n");
+		exit(0);
+	}
 }
 
 void writeLogMessage(char *id, char *msg) { 
