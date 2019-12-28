@@ -682,48 +682,79 @@ void atendiendo(int pos, int idUser, int atendedorId) {
 	int atencion;
 	char identificacion[100];
 	char mensaje[100];
+	char mensaje2[100];
+	char mensaje3[100];
+	char mensaje4[100];
+	char usuario[100];
+	char espera[100];
 	int tiempo;
 	sprintf(identificacion, "Atendedor %i",atendedorId);
+	sprintf(usuario, "%d", idUser);
 	printf("Atendedor %i atiende al usuario %i \n",atendedorId,idUser);
 	atencion=calcularAtencion(); //Calculamos la atencion
 	//Escribimos en el log
-	pthread_mutex_lock(&semLog); 
-	writeLogMessage(identificacion,"Atiende al usuario -insertar numero-");
+	pthread_mutex_lock(&semLog);
+	mensaje= "Atiende al usuario ";
+	strcat(mensaje, usuario); 
+	writeLogMessage(identificacion,mensaje);
 	pthread_mutex_unlock(&semLog);
 	if(atencion==0) {
 		tiempo=calculaAleatorios(1,4);
 		sleep(tiempo);
 		
 		printf("Atendedor %i termina de atender al usuario %i \n",atendedorId,idUser);
-		
+
+		printf("Encontrada ficha policial del usuario %i \n",idUser);		
 		printf("Atencion correcta del usuario %i \n",idUser);
 		pthread_mutex_lock(&semLog);
-		writeLogMessage(identificacion,"Termina de atender al usuario -insertar num-");
-		writeLogMessage(identificacion,"el usuario -insertar num- ha esparado -num- segundos");
-		writeLogMessage(identificacion,"Atencion correcta del usuario -insertar num-");
+		mensaje2 = "Termina de atender al usuario ";
+		strcat(mensaje2, usuario);
+		writeLogMessage(identificacion,mensaje2);
+		mensaje3 = "El usuario";
+		sprintf(espera, "%d", tiempo);
+		strcat(mensaje3, usuario, " ha esperado ", espera, " segundos ");
+		writeLogMessage(identificacion,mensaje3);
+		mensaje4= " Atencion correcta del usuario ";
+		strcat(mensaje4, usuario);
+		writeLogMessage(identificacion,mensaje4);
 		pthread_mutex_unlock(&semLog);
 	} else if(atencion==1) {
-		printf("Atendedor %i termina de atender al usuario %i \n",atendedorId,idUser);
-		
-		printf("Error en datos personales del usuario %i \n",idUser);
-		tiempo=calculaAleatorios(2,6);
+		tiempo=calculaAleatorios(1,4);
 		sleep(tiempo);
+		
+		printf("Atendedor %i termina de atender al usuario %i \n",atendedorId,idUser);
+
+		printf("Error en datos personales del usuario %i \n",idUser);		
 		pthread_mutex_lock(&semLog);
-		writeLogMessage(identificacion,"Termina de atender al usuario -insertar num-");
-		writeLogMessage(identificacion,"el usuario -insertar num- ha esparado -num- segundos");
-		writeLogMessage(identificacion,"Algun error en datos personales del usuario -insertar num-");
+		mensaje2 = "Termina de atender al usuario ";
+		strcat(mensaje2, usuario);
+		writeLogMessage(identificacion,mensaje2);
+		mensaje3 = "El usuario";
+		sprintf(espera, "%d", tiempo);
+		strcat(mensaje3, usuario, " ha esperado ", espera, " segundos ");
+		writeLogMessage(identificacion,mensaje3);
+		mensaje4= " Ha habido algunos errores en los datos personales del usuario  ";
+		strcat(mensaje4, usuario);
+		writeLogMessage(identificacion,mensaje4);
 		pthread_mutex_unlock(&semLog);
 	} else if(atencion==2) {
-		printf("Atendedor %i termina de atender al usuario %i \n",atendedorId,idUser);
-		
-		printf("Encontrada ficha policial del usuario %i \n",idUser);
-
 		tiempo=calculaAleatorios(6,10);
 		sleep(tiempo);
+		
+		printf("Atendedor %i termina de atender al usuario %i \n",atendedorId,idUser);
+
+		printf("Encontrada ficha policial del usuario %i \n",idUser);		
 		pthread_mutex_lock(&semLog);
-		writeLogMessage(identificacion,"Termina de atender al usuario -insertar num-");
-		writeLogMessage(identificacion,"el usuario -insertar num- ha esparado -num- segundos");
-		writeLogMessage(identificacion,"Encontrada ficha policial con antecedentes del usuario -insertar num-");
+		mensaje2 = "Termina de atender al usuario ";
+		strcat(mensaje2, usuario);
+		writeLogMessage(identificacion,mensaje2);
+		mensaje3 = "El usuario";
+		sprintf(espera, "%d", tiempo);
+		strcat(mensaje3, usuario, " ha esperado ", espera, " segundos ");
+		writeLogMessage(identificacion,mensaje3);
+		mensaje4=" Encontrada ficha policial con antecedentes del usuario ";
+		strcat(mensaje4, usuario);
+		writeLogMessage(identificacion,mensaje4);
 		pthread_mutex_unlock(&semLog);
 	}
 	//Cambiamos el flag de atendido
