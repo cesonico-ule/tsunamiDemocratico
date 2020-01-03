@@ -75,14 +75,34 @@ struct solicitudUsuario *colaEventos;
 
 
 
-int main (){
+int main (int argc, char*argv[]){
 
 	srand(time(NULL));
+
+	//Comprobamos que los argumentos sean correctos
+	if(argc != 3){
+		printf("Por favor, especifique bien el numero de solicitudes maximo y el numero de atendedores PRO (en ese orden).\n");
+		exit(-1);
+	}
+
+	long argSolicitudes = strtol(argv[1], NULL, 10);
+	MAXUSR = (int)argSolicitudes;
+	long argAtendedores = strtol(argv[2], NULL, 10);
+	MAXATEND = (int) argAtendedores + 2;
+	printf("Usuarios: %d\n", MAXUSR);
+	printf("Atendedores: %d\n", MAXATEND);
+	//Comprobamos que sean valores adecuados
+	if(MAXUSR <= 0){
+		printf("El numero de solicitudes no puede ser 0 o negativo.\n");
+		exit(-1);
+	}
+	if(MAXATEND <= 0){
+		printf("El numero de atendedores no puede ser 0 o negativo.\n");
+		exit(-1);
+	}
 	
-	//Inicializamos los contadores
-	MAXUSR=15; 
+	//Inicializamos los contadores 
 	MAXSOCIALACT=4;
-	MAXATEND=3;
 	contadorSolicitudes=0;
 	contadorEventos=0;
 	condicionEmpezarActividad=0;
@@ -129,11 +149,13 @@ int main (){
 	pthread_mutex_unlock(&semLog);
 
  	//Creamos los hilos
-	pthread_t atendInv, atendQR, atendPRO, coordinadorSocial;
-	pthread_create (&atendInv, NULL, hiloAtendedor, (void*)1);
-	pthread_create (&atendQR, NULL, hiloAtendedor, (void*)2);
-	pthread_create (&atendPRO, NULL, hiloAtendedor, (void*)3);
+	pthread_t coordinadorSocial;
 	pthread_create (&coordinadorSocial, NULL, hiloCoordinador, NULL);
+
+	for(int i = 1; i <= MAXATEND; i++){
+		pthread_t atendedor;
+		pthread_create (&atendedor, NULL, hiloAtendedor, (void*)i);
+	}
 
 	//Inicializamos la condición
 	
@@ -528,6 +550,8 @@ void manejadoraTerminar(){
 		while(contadorFinAtendedores!=MAXATEND){ //Esperamos a que terminen los atendedores de gestionar las solicitudes
 			sleep(1);
 		}
+
+		printf("\t \t //-Terminado atendedores-//\n");
 		
 		while(condicionEmpezarActividad==1) { //Esperamos a que termine la actividad social si hay una en curso
 			sleep(1);
