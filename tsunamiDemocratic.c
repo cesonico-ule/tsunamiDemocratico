@@ -18,6 +18,7 @@ void *hiloCoordinador(void *arg);
 //Manejadoras
 void manejadoraSolicitud(int sig);
 void manejadoraTerminar();
+void manejadoraInfo();
 
 //Auxiliares
 void writeLogMessage(char *id, char *msg);
@@ -81,15 +82,21 @@ int main (int argc, char*argv[]){
 	srand(time(NULL));
 
 	//Comprobamos que los argumentos sean correctos
-	if(argc != 3){
+	if(argc != 3 && argc !=1){
 		printf("Por favor, especifique bien el numero de solicitudes maximo y el numero de atendedores PRO (en ese orden).\n");
 		exit(-1);
 	}
 
-	long argSolicitudes = strtol(argv[1], NULL, 10);
-	MAXUSR = (int)argSolicitudes;
-	long argAtendedores = strtol(argv[2], NULL, 10);
-	MAXATEND = (int) argAtendedores + 2;
+	if(argc == 3){
+		long argSolicitudes = strtol(argv[1], NULL, 10);
+		MAXUSR = (int)argSolicitudes;
+		long argAtendedores = strtol(argv[2], NULL, 10);
+		MAXATEND = (int) argAtendedores + 2;
+	} else {
+		MAXUSR = 15;
+		MAXATEND = 3;
+	}
+
 	printf("Usuarios: %d\n", MAXUSR);
 	printf("Atendedores: %d\n", MAXATEND);
 	//Comprobamos que sean valores adecuados
@@ -120,6 +127,10 @@ int main (int argc, char*argv[]){
 		exit(-1);
 	}
 	if(signal(SIGINT, manejadoraTerminar)==SIG_ERR){
+		perror("LLamada a manejadora fallida.");
+		exit(-1);
+	}
+	if(signal(SIGPIPE, manejadoraInfo)==SIG_ERR){
 		perror("LLamada a manejadora fallida.");
 		exit(-1);
 	}
@@ -178,6 +189,45 @@ int main (int argc, char*argv[]){
 	}
 }
 
+void manejadoraInfo(){
+	int totales = 0;
+	pthread_mutex_lock(&semSolicitudes);
+	totales = contadorSolicitudes;
+	pthread_mutex_unlock(&semSolicitudes);
+
+	int actuales = 0;
+	pthread_mutex_lock(&semSolicitudes);
+	actuales = buscarEspacioSolicitud();
+	pthread_mutex_unlock(&semSolicitudes);
+
+	int huecos = 0;
+	pthread_mutex_lock(&semSolicitudes);
+	huecos = MAXUSR-actuales;
+	pthread_mutex_unlock(&semSolicitudes);
+
+	int usuarios = 0;
+	pthread_mutex_lock(&semSolicitudes);
+	for(int i = 0; i<MAXUSR; i++){
+		printf("%d\n", colaSolicitud[i].atendido);
+		if(colaSolicitud[i].atendido==2){
+			usuarios++;
+		}
+	}
+	pthread_mutex_unlock(&semSolicitudes);
+	
+	pthread_mutex_lock(&semActividadSocial);
+	usuarios = usuarios - (4 - buscarEspacioActividadSocial());
+	pthread_mutex_unlock(&semActividadSocial);
+	if(usuarios < 0){
+		usuarios = 0;
+	}
+	printf("Solicitudes totales atendidas: %d\n", totales);
+	printf("Huecos para solicitudes: %d\n", huecos);
+	printf("Solicitudes atendidas actualmente: %d\n", actuales);
+	printf("Usuarios esperando para acceder a la actividad social: %d\n", usuarios);
+
+}
+
 //Llega una senyal y se crea una nueva solicitud de usuario
 
 void manejadoraSolicitud(int sig){ //Cerramos el mutex
@@ -220,7 +270,7 @@ void manejadoraSolicitud(int sig){ //Cerramos el mutex
 void *hiloUsuario(void *arg) {
 
 	//Cogemos el id pasado como argumento y lo almacenamos en una variable
-	int id = atoi(arg);
+	int id = (int *)arg;
 	//Buscamos la posicion que tiene el id del hilo en la lista
 	int posicion=buscarPosicionEnLista(id);
 	char identificacion[100]; //Identificacion del usuario para cuando se escriban los mensajes en el log
@@ -431,7 +481,7 @@ void *hiloUsuario(void *arg) {
 
 
 void *hiloAtendedor(void *arg) {
-	int idAtendedor=atoi(arg);	
+	int idAtendedor=(int*)arg;
 	int terminarTrabajar=0; //Variable que controla que cuando se acabe el programa y los atendedores no esten ocupados puedan dejar de trabajar.
 	int numAtendidos=0;
 	int ocupado=0;
