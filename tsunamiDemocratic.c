@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <pthread.h>
 #include <signal.h>
 #include <time.h>
@@ -219,7 +220,7 @@ void manejadoraSolicitud(int sig){ //Cerramos el mutex
 void *hiloUsuario(void *arg) {
 
 	//Cogemos el id pasado como argumento y lo almacenamos en una variable
-	int id=(int *)arg;
+	int id = atoi(arg);
 	//Buscamos la posicion que tiene el id del hilo en la lista
 	int posicion=buscarPosicionEnLista(id);
 	char identificacion[100]; //Identificacion del usuario para cuando se escriban los mensajes en el log
@@ -430,7 +431,7 @@ void *hiloUsuario(void *arg) {
 
 
 void *hiloAtendedor(void *arg) {
-	int idAtendedor=(int *)arg;	
+	int idAtendedor=atoi(arg);	
 	int terminarTrabajar=0; //Variable que controla que cuando se acabe el programa y los atendedores no esten ocupados puedan dejar de trabajar.
 	int numAtendidos=0;
 	int ocupado=0;
